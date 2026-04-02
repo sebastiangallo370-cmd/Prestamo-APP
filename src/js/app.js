@@ -50,7 +50,19 @@ clientsRef.on('value', function(snapshot) {
 function refreshCurrentView() {
   if (!document.getElementById('dashboard-page').classList.contains('hidden')) renderDashboard();
   if (!document.getElementById('clients-page').classList.contains('hidden'))   renderClients();
-  if (!document.getElementById('detail-page').classList.contains('hidden'))    renderDetail();
+  if (!document.getElementById('detail-page').classList.contains('hidden')) {
+    // Guardar valores escritos en los inputs antes de re-renderizar
+    var savedInputs = {};
+    document.querySelectorAll('[id^="inp-monto-"]').forEach(function(inp) {
+      if (inp.value.trim() !== '') savedInputs[inp.id] = inp.value;
+    });
+    renderDetail();
+    // Restaurar los valores después de re-renderizar
+    Object.keys(savedInputs).forEach(function(id) {
+      var inp = document.getElementById(id);
+      if (inp) inp.value = savedInputs[id];
+    });
+  }
   if (!document.getElementById('intereses-page').classList.contains('hidden')) renderIntereses();
 }
 
@@ -439,8 +451,6 @@ function renderDetail() {
   var detail = document.getElementById('detail-content');
   if (!detail) return;
 
-  var cuotasPagadas = client.cuotas.filter(function(q) { return q.pagada; }).length;
-  var progreso = Math.round((cuotasPagadas / client.cuotas.length) * 100);
 
   // Restando = cuotas pendientes + diferencia no pagada en cuotas parciales
   var montoRestando = client.cuotas.reduce(function(s, q) {
