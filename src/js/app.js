@@ -442,6 +442,13 @@ function renderDetail() {
   var cuotasPagadas = client.cuotas.filter(function(q) { return q.pagada; }).length;
   var progreso = Math.round((cuotasPagadas / client.cuotas.length) * 100);
 
+  // Restando = cuotas pendientes + diferencia no pagada en cuotas parciales
+  var montoRestando = client.cuotas.reduce(function(s, q) {
+    if (!q.pagada) return s + q.cuota;
+    var pagado = q.montoPagado || q.cuota;
+    return s + Math.max(0, q.cuota - pagado);
+  }, 0);
+
   var filasHTML = client.cuotas.map(function(q, i) {
     var inputId  = 'inp-monto-' + i;
     var btnPagar = q.pagada
@@ -469,7 +476,7 @@ function renderDetail() {
       '<div class="stat-card"><div class="stat-label">Capital</div><div class="stat-value">' + fmt(client.monto) + '</div></div>' +
       '<div class="stat-card"><div class="stat-label">Total a Pagar</div><div class="stat-value">' + fmt(client.totalPagar) + '</div></div>' +
       '<div class="stat-card"><div class="stat-label">Valor Cuota</div><div class="stat-value">' + fmt(client.cuotaFija) + '</div></div>' +
-      '<div class="stat-card"><div class="stat-label">Restando</div><div class="stat-value" style="color:var(--danger)">' + fmt(client.cuotas.filter(function(q){return !q.pagada;}).reduce(function(s,q){return s+q.cuota;},0)) + '</div></div>' +
+      '<div class="stat-card"><div class="stat-label">Restando</div><div class="stat-value" style="color:var(--danger)">' + fmt(montoRestando) + '</div></div>' +
     '</div>' +
     '<div class="card" style="padding:0; overflow:hidden;">' +
       '<table class="w-full" style="border-collapse:collapse; font-size:13px;">' +
