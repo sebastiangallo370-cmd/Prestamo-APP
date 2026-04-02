@@ -553,13 +553,15 @@ function guardarMonto(input, index) {
 function toggleCuota(clientId, index) {
   var client = state.clients.find(function(c) { return c.id === clientId; });
   if (!client) return;
-  var cuota      = client.cuotas[index];
+  var cuota       = client.cuotas[index];
   var montoPagado = state.montosIngresados[index] || null;
 
-  // Validar solo si es un pago nuevo (no desmarcar)
-  if (!cuota.pagada && !cuota.pagoParcial && montoPagado && montoPagado > cuota.cuota) {
-    showToast('El monto ingresado supera la deuda', 'error');
-    return;
+  // Solo validar en pago nuevo (no al desmarcar)
+  if (!cuota.pagada && !cuota.pagoParcial && montoPagado) {
+    if (montoPagado > cuota.cuota) {
+      showToast('El monto supera la deuda. Máximo: ' + fmt(cuota.cuota), 'error');
+      return;
+    }
   }
 
   delete state.montosIngresados[index];
@@ -569,13 +571,15 @@ function toggleCuota(clientId, index) {
 function agregarPago(clientId, index) {
   var client = state.clients.find(function(c) { return c.id === clientId; });
   if (!client) return;
-  var cuota    = client.cuotas[index];
+  var cuota     = client.cuotas[index];
   var adicional = state.montosIngresados[index] || null;
   if (!adicional) { showToast('Ingresa el monto a abonar', 'error'); return; }
 
+  var restante    = cuota.cuota - (cuota.montoPagado || 0);
   var totalPagado = (cuota.montoPagado || 0) + adicional;
-  if (totalPagado > cuota.cuota) {
-    showToast('El monto ingresado supera la deuda', 'error');
+
+  if (adicional > restante) {
+    showToast('El monto supera la deuda. Máximo a abonar: ' + fmt(restante), 'error');
     return;
   }
 
