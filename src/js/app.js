@@ -75,14 +75,52 @@ function toggleCuotaInCloud(clientId, cuotaIndex, montoPagado) {
   var client = state.clients.find(function(c) { return c.id === clientId; });
   if (!client) return;
 
-  var cuota = client.cuotas[cuotaIndex];
-  var nuevoEstado = !cuota.pagada;
-  var nuevaFecha  = nuevoEstado ? new Date().toISOString().split('T')[0] : null;
-
+  var cuota   = client.cuotas[cuotaIndex];
   var updates = {};
-  updates['clients/' + clientId + '/cuotas/' + cuotaIndex + '/pagada']       = nuevoEstado;
-  updates['clients/' + clientId + '/cuotas/' + cuotaIndex + '/fechaPagada']  = nuevaFecha;
-  updates['clients/' + clientId + '/cuotas/' + cuotaIndex + '/montoPagado']  = nuevoEstado ? (montoPagado || cuota.cuota) : null;
+  var base    = 'clients/' + clientId + '/cuotas/' + cuotaIndex;
+
+  if (cuota.pagada || cuota.pagoParcial) {
+    // Desmarcar: resetear todo
+    updates[base + '/pagada']       = false;
+    updates[base + '/pagoParcial']  = false;
+    updates[base + '/montoPagado']  = null;
+    updates[base + '/fechaPagada']  = null;
+  } else {
+    var monto = montoPagado || cuota.cuota;
+    var fecha = new Date().toISOString().split('T')[0];
+    if (monto >= cuota.cuota) {
+      // Pago completo → verde
+      updates[base + '/pagada']       = true;
+      updates[base + '/pagoParcial']  = false;
+    } else {
+      // Pago parcial → naranja
+      updates[base + '/pagada']       = false;
+      updates[base + '/pagoParcial']  = true;
+    }
+    updates[base + '/montoPagado']  = monto;
+    updates[base + '/fechaPagada']  = fecha;
+  }
+
+  return db.ref().update(updates);
+}
+
+function agregarPagoInCloud(clientId, cuotaIndex, adicional) {
+  var client = state.clients.find(function(c) { return c.id === clientId; });
+  if (!client || !adicional) return;
+
+  var cuota      = client.cuotas[cuotaIndex];
+  var totalPagado = (cuota.montoPagado || 0) + adicional;
+  var base        = 'clients/' + clientId + '/cuotas/' + cuotaIndex;
+  var updates     = {};
+
+  if (totalPagado >= cuota.cuota) {
+    updates[base + '/pagada']      = true;
+    updates[base + '/pagoParcial'] = false;
+  } else {
+    updates[base + '/pagoParcial'] = true;
+  }
+  updates[base + '/montoPagado'] = totalPagado;
+  updates[base + '/fechaPagada'] = new Date().toISOString().split('T')[0];
 
   return db.ref().update(updates);
 }
@@ -441,25 +479,44 @@ function renderDetail() {
   if (!detail) return;
 
 
-  // Restando = cuotas pendientes + diferencia no pagada en cuotas parciales
+  // Restando = pendientes completos + lo que falta en parciales
   var montoRestando = client.cuotas.reduce(function(s, q) {
-    if (!q.pagada) return s + q.cuota;
-    var pagado = q.montoPagado || q.cuota;
-    return s + Math.max(0, q.cuota - pagado);
+    if (q.pagada)      return s;
+    if (q.pagoParcial) return s + Math.max(0, q.cuota - (q.montoPagado || 0));
+    return s + q.cuota;
   }, 0);
+
+  var inputStyle = 'width:110px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-right:6px;background:var(--surface);color:var(--text);';
 
   var filasHTML = client.cuotas.map(function(q, i) {
     var valorGuardado = state.montosIngresados[i] ? state.montosIngresados[i].toLocaleString('es-CO') : '';
-    var btnPagar = q.pagada
-      ? '<span style="font-size:12px;color:var(--text2);margin-right:8px;">Pagado: ' + fmt(q.montoPagado || q.cuota) + '</span><button class="btn btn-outline btn-sm" onclick="toggleCuota(\'' + client.id + '\',' + i + ')">↩ Desmarcar</button>'
-      : '<input type="text" value="' + valorGuardado + '" placeholder="' + Math.round(q.cuota).toLocaleString('es-CO') + '" oninput="guardarMonto(this,' + i + ')" style="width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-right:8px;background:var(--surface);color:var(--text);">' +
-        '<button class="btn btn-primary btn-sm" onclick="toggleCuota(\'' + client.id + '\',' + i + ')">✓ Pagar</button>';
-    return '<tr>' +
+    var estado, accion;
+
+    if (q.pagada) {
+      estado = '<span style="color:var(--success);font-weight:600;">✅ Pagada</span>';
+      accion = '<span style="font-size:12px;color:var(--text2);margin-right:8px;">Cobrado: ' + fmt(q.montoPagado || q.cuota) + '</span>' +
+               '<button class="btn btn-outline btn-sm" onclick="toggleCuota(\'' + client.id + '\',' + i + ')">↩ Desmarcar</button>';
+
+    } else if (q.pagoParcial) {
+      var faltante = Math.max(0, q.cuota - (q.montoPagado || 0));
+      estado = '<span style="color:var(--gold);font-weight:600;">🟡 Parcial</span>';
+      accion = '<span style="font-size:11px;color:var(--gold);margin-right:6px;">Pagado: ' + fmt(q.montoPagado) + ' · Falta: ' + fmt(faltante) + '</span>' +
+               '<input type="text" value="' + valorGuardado + '" placeholder="Agregar..." oninput="guardarMonto(this,' + i + ')" style="' + inputStyle + '">' +
+               '<button class="btn btn-sm" style="background:var(--gold);color:#fff;margin-right:4px;" onclick="agregarPago(\'' + client.id + '\',' + i + ')">+ Abonar</button>' +
+               '<button class="btn btn-outline btn-sm" onclick="toggleCuota(\'' + client.id + '\',' + i + ')">↩ Desmarcar</button>';
+
+    } else {
+      estado = '<span style="color:var(--text2);">⏳ Pendiente</span>';
+      accion = '<input type="text" value="' + valorGuardado + '" placeholder="' + Math.round(q.cuota).toLocaleString('es-CO') + '" oninput="guardarMonto(this,' + i + ')" style="' + inputStyle + '">' +
+               '<button class="btn btn-primary btn-sm" onclick="toggleCuota(\'' + client.id + '\',' + i + ')">✓ Pagar</button>';
+    }
+
+    return '<tr style="' + (q.pagada ? 'opacity:0.6;' : '') + '">' +
       '<td style="padding:10px;">' + q.numero + '</td>' +
       '<td style="padding:10px;">' + fmtDate(q.fechaPago) + '</td>' +
       '<td style="padding:10px;">' + fmt(q.cuota) + '</td>' +
-      '<td style="padding:10px;">' + (q.pagada ? '✅ Pagada' : '⏳ Pendiente') + '</td>' +
-      '<td style="padding:10px;">' + btnPagar + '</td>' +
+      '<td style="padding:10px;">' + estado + '</td>' +
+      '<td style="padding:10px;">' + accion + '</td>' +
       '</tr>';
   }).join('');
 
@@ -497,6 +554,13 @@ function toggleCuota(clientId, index) {
   var montoPagado = state.montosIngresados[index] || null;
   delete state.montosIngresados[index];
   toggleCuotaInCloud(clientId, index, montoPagado).then(function() { showToast('Estado actualizado'); });
+}
+
+function agregarPago(clientId, index) {
+  var adicional = state.montosIngresados[index] || null;
+  if (!adicional) { showToast('Ingresa el monto a abonar', 'error'); return; }
+  delete state.montosIngresados[index];
+  agregarPagoInCloud(clientId, index, adicional).then(function() { showToast('Abono registrado'); });
 }
 
 function deleteClient(id) {
@@ -559,6 +623,7 @@ window.formatMontoInput = formatMontoInput;
 window.viewClient       = viewClient;
 window.toggleCuota      = toggleCuota;
 window.guardarMonto     = guardarMonto;
+window.agregarPago      = agregarPago;
 window.deleteClient     = deleteClient;
 window.renderClients    = renderClients;
 window.openModal        = openModal;
