@@ -300,6 +300,15 @@ function isVencida(dateStr) {
   if (!dateStr) return false;
   return new Date(dateStr + 'T00:00:00') < new Date();
 }
+function calcularMora(cuota) {
+  if (cuota.pagada) return 0;
+  var hoy = new Date(); hoy.setHours(0,0,0,0);
+  var venc = new Date(cuota.fechaPago + 'T00:00:00');
+  if (hoy <= venc) return 0;
+  var dias = Math.floor((hoy - venc) / 86400000);
+  var base = cuota.pagoParcial ? Math.max(0, cuota.cuota - (cuota.montoPagado || 0)) : cuota.cuota;
+  return Math.round(base * (CONFIG.INTERES_MENSUAL / 30) * dias);
+}
 function formatMontoInput(input) {
   var digits = input.value.replace(/[^0-9]/g, '');
   if (digits === '') { input.value = ''; return; }
@@ -479,17 +488,23 @@ function renderDetail() {
   if (!detail) return;
 
 
-  // Restando = pendientes completos + lo que falta en parciales
+  // Restando = deuda pendiente + mora acumulada
+  var totalMoraCliente = 0;
   var montoRestando = client.cuotas.reduce(function(s, q) {
-    if (q.pagada)      return s;
-    if (q.pagoParcial) return s + Math.max(0, q.cuota - (q.montoPagado || 0));
-    return s + q.cuota;
+    if (q.pagada) return s;
+    var mora = calcularMora(q);
+    totalMoraCliente += mora;
+    if (q.pagoParcial) return s + Math.max(0, q.cuota - (q.montoPagado || 0)) + mora;
+    return s + q.cuota + mora;
   }, 0);
 
   var inputStyle = 'width:110px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-right:6px;background:var(--surface);color:var(--text);';
 
   var filasHTML = client.cuotas.map(function(q, i) {
     var valorGuardado = state.montosIngresados[i] ? state.montosIngresados[i].toLocaleString('es-CO') : '';
+    var vencida = !q.pagada && isVencida(q.fechaPago);
+    var mora    = calcularMora(q);
+    var rowStyle = q.pagada ? 'opacity:0.6;' : (vencida ? 'background:#fff5f5;' : '');
     var estado, accion;
 
     if (q.pagada) {
@@ -499,21 +514,31 @@ function renderDetail() {
 
     } else if (q.pagoParcial) {
       var faltante = Math.max(0, q.cuota - (q.montoPagado || 0));
-      estado = '<span style="color:var(--gold);font-weight:600;">🟡 Parcial</span>';
-      accion = '<span style="font-size:11px;color:var(--gold);margin-right:6px;">Pagado: ' + fmt(q.montoPagado) + ' · Falta: ' + fmt(faltante) + '</span>' +
+      estado = vencida
+        ? '<span style="color:var(--danger);font-weight:600;">🔴 Parcial Vencida</span>'
+        : '<span style="color:var(--gold);font-weight:600;">🟡 Parcial</span>';
+      accion = '<span style="font-size:11px;color:' + (vencida ? 'var(--danger)' : 'var(--gold)') + ';margin-right:6px;">' +
+               'Pagado: ' + fmt(q.montoPagado) + ' · Falta: ' + fmt(faltante) +
+               (mora > 0 ? ' · <strong>Mora: ' + fmt(mora) + '</strong>' : '') + '</span>' +
                '<input type="text" value="' + valorGuardado + '" placeholder="Agregar..." oninput="guardarMonto(this,' + i + ')" style="' + inputStyle + '">' +
                '<button class="btn btn-sm" style="background:var(--gold);color:#fff;margin-right:4px;" onclick="agregarPago(\'' + client.id + '\',' + i + ')">+ Abonar</button>' +
                '<button class="btn btn-outline btn-sm" onclick="toggleCuota(\'' + client.id + '\',' + i + ')">↩ Desmarcar</button>';
 
     } else {
-      estado = '<span style="color:var(--text2);">⏳ Pendiente</span>';
+      estado = vencida
+        ? '<span style="color:var(--danger);font-weight:600;">🔴 Vencida</span>'
+        : '<span style="color:var(--text2);">⏳ Pendiente</span>';
       accion = '<input type="text" value="' + valorGuardado + '" placeholder="' + Math.round(q.cuota).toLocaleString('es-CO') + '" oninput="guardarMonto(this,' + i + ')" style="' + inputStyle + '">' +
                '<button class="btn btn-primary btn-sm" onclick="toggleCuota(\'' + client.id + '\',' + i + ')">✓ Pagar</button>';
     }
 
-    return '<tr style="' + (q.pagada ? 'opacity:0.6;' : '') + '">' +
+    var moraTag = (mora > 0 && !q.pagada && !q.pagoParcial)
+      ? '<br><span style="font-size:11px;color:var(--danger);font-weight:600;">+Mora: ' + fmt(mora) + '</span>'
+      : '';
+
+    return '<tr style="' + rowStyle + '">' +
       '<td style="padding:10px;">' + q.numero + '</td>' +
-      '<td style="padding:10px;">' + fmtDate(q.fechaPago) + '</td>' +
+      '<td style="padding:10px;' + (vencida ? 'color:var(--danger);font-weight:600;' : '') + '">' + fmtDate(q.fechaPago) + moraTag + '</td>' +
       '<td style="padding:10px;">' + fmt(q.cuota) + '</td>' +
       '<td style="padding:10px;">' + estado + '</td>' +
       '<td style="padding:10px;">' + accion + '</td>' +
@@ -533,6 +558,7 @@ function renderDetail() {
       '<div class="stat-card"><div class="stat-label">Total a Pagar</div><div class="stat-value">' + fmt(client.totalPagar) + '</div></div>' +
       '<div class="stat-card"><div class="stat-label">Valor Cuota</div><div class="stat-value">' + fmt(client.cuotaFija) + '</div></div>' +
       '<div class="stat-card"><div class="stat-label">Restando</div><div class="stat-value" style="color:var(--danger)">' + fmt(montoRestando) + '</div></div>' +
+      (totalMoraCliente > 0 ? '<div class="stat-card" style="border-color:var(--danger);background:#fff5f5;"><div class="stat-label" style="color:var(--danger);">⚠️ Mora acumulada</div><div class="stat-value" style="color:var(--danger);">' + fmt(totalMoraCliente) + '</div></div>' : '') +
     '</div>' +
     '<div class="card" style="padding:0; overflow:hidden;">' +
       '<table class="w-full" style="border-collapse:collapse; font-size:13px;">' +
@@ -575,8 +601,7 @@ function agregarPago(clientId, index) {
   var adicional = state.montosIngresados[index] || null;
   if (!adicional) { showToast('Ingresa el monto a abonar', 'error'); return; }
 
-  var restante    = cuota.cuota - (cuota.montoPagado || 0);
-  var totalPagado = (cuota.montoPagado || 0) + adicional;
+  var restante = cuota.cuota - (cuota.montoPagado || 0);
 
   if (adicional > restante) {
     showToast('El monto supera la deuda. Máximo a abonar: ' + fmt(restante), 'error');
