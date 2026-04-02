@@ -249,8 +249,8 @@ function toggleUserMenu() {
 /* ============================================================
    CÁLCULO DE INTERESES Y CUOTAS
    ============================================================ */
-function calcularPrestamo(monto, numCuotas, fechaInicio, diasFrecuencia) {
-  var interesMensual  = CONFIG.INTERES_MENSUAL;
+function calcularPrestamo(monto, numCuotas, fechaInicio, diasFrecuencia, tasaMensual) {
+  var interesMensual  = tasaMensual || CONFIG.INTERES_MENSUAL;
   var periodosDias    = parseInt(diasFrecuencia) || 30;
   var tasaPeriodo     = interesMensual * (periodosDias / 30);
   var interesPorCuota = monto * tasaPeriodo;
@@ -300,14 +300,15 @@ function isVencida(dateStr) {
   if (!dateStr) return false;
   return new Date(dateStr + 'T00:00:00') < new Date();
 }
-function calcularMora(cuota) {
+function calcularMora(cuota, tasaMensual) {
   if (cuota.pagada) return 0;
   var hoy = new Date(); hoy.setHours(0,0,0,0);
   var venc = new Date(cuota.fechaPago + 'T00:00:00');
   if (hoy <= venc) return 0;
   var dias = Math.floor((hoy - venc) / 86400000);
   var base = cuota.pagoParcial ? Math.max(0, cuota.cuota - (cuota.montoPagado || 0)) : cuota.cuota;
-  return Math.round(base * (CONFIG.INTERES_MENSUAL / 30) * dias);
+  var tasa = tasaMensual || CONFIG.INTERES_MENSUAL;
+  return Math.round(base * (tasa / 30) * dias);
 }
 function formatMontoInput(input) {
   var digits = input.value.replace(/[^0-9]/g, '');
@@ -319,14 +320,15 @@ function formatMontoInput(input) {
    MÓDULO DE CLIENTES
    ============================================================ */
 function recalcPreview() {
-  var montoRaw  = document.getElementById('f-monto').value.replace(/[^0-9]/g, '');
-  var monto     = parseFloat(montoRaw) || 0;
-  var cuotas    = parseInt(document.getElementById('f-cuotas').value) || 0;
+  var montoRaw   = document.getElementById('f-monto').value.replace(/[^0-9]/g, '');
+  var monto      = parseFloat(montoRaw) || 0;
+  var cuotas     = parseInt(document.getElementById('f-cuotas').value) || 0;
   var frecuencia = document.getElementById('f-frecuencia').value;
-  var preview   = document.getElementById('calc-preview');
+  var tasa       = parseFloat(document.getElementById('f-tasa').value) || CONFIG.INTERES_MENSUAL;
+  var preview    = document.getElementById('calc-preview');
 
   if (monto > 0 && cuotas > 0) {
-    var result = calcularPrestamo(monto, cuotas, new Date().toISOString().split('T')[0], frecuencia);
+    var result = calcularPrestamo(monto, cuotas, new Date().toISOString().split('T')[0], frecuencia, tasa);
     document.getElementById('prev-total').textContent = fmt(result.totalPagar);
     document.getElementById('prev-cuota').textContent = fmt(result.cuotaFija);
     preview.classList.remove('hidden');
@@ -343,29 +345,32 @@ function openAddModal() {
     document.getElementById(id).value = '';
   });
   document.getElementById('f-fecha').valueAsDate = new Date();
-  document.getElementById('f-frecuencia').value  = '30';
+  document.getElementById('f-frecuencia').value = '30';
+  document.getElementById('f-tasa').value       = '0.20';
   document.getElementById('calc-preview').classList.add('hidden');
   openModal('modal-client');
 }
 
 function saveClient() {
-  var nombre      = document.getElementById('f-nombre').value.trim();
-  var telefono    = document.getElementById('f-tel').value.trim();
-  var montoRaw    = document.getElementById('f-monto').value.replace(/[^0-9]/g, '');
-  var monto       = parseFloat(montoRaw);
-  var numCuotas   = parseInt(document.getElementById('f-cuotas').value);
+  var nombre        = document.getElementById('f-nombre').value.trim();
+  var telefono      = document.getElementById('f-tel').value.trim();
+  var montoRaw      = document.getElementById('f-monto').value.replace(/[^0-9]/g, '');
+  var monto         = parseFloat(montoRaw);
+  var numCuotas     = parseInt(document.getElementById('f-cuotas').value);
   var fechaPrestamo = document.getElementById('f-fecha').value;
-  var frecuencia  = document.getElementById('f-frecuencia').value;
+  var frecuencia    = document.getElementById('f-frecuencia').value;
+  var tasa          = parseFloat(document.getElementById('f-tasa').value) || CONFIG.INTERES_MENSUAL;
 
   if (!nombre || !monto || !numCuotas || !fechaPrestamo) {
     showToast('Por favor completa todos los campos obligatorios.', 'error');
     return;
   }
 
-  var calc = calcularPrestamo(monto, numCuotas, fechaPrestamo, frecuencia);
+  var calc = calcularPrestamo(monto, numCuotas, fechaPrestamo, frecuencia, tasa);
   var clientData = {
     nombre: nombre, telefono: telefono, monto: monto,
     numCuotas: numCuotas, fechaPrestamo: fechaPrestamo, frecuencia: frecuencia,
+    tasaMensual: tasa,
     cuotaFija: calc.cuotaFija, totalPagar: calc.totalPagar,
     totalIntereses: calc.totalIntereses, cuotas: calc.cuotas
   };
@@ -488,11 +493,17 @@ function renderDetail() {
   if (!detail) return;
 
 
+  var tasa = client.tasaMensual || CONFIG.INTERES_MENSUAL;
+  var intPorCuota   = client.totalIntereses / client.numCuotas;
+  var cuotasPagadas = client.cuotas.filter(function(q) { return q.pagada; }).length;
+  var intCobrado    = cuotasPagadas * intPorCuota;
+  var intPendiente  = (client.numCuotas - cuotasPagadas) * intPorCuota;
+
   // Restando = deuda pendiente + mora acumulada
   var totalMoraCliente = 0;
   var montoRestando = client.cuotas.reduce(function(s, q) {
     if (q.pagada) return s;
-    var mora = calcularMora(q);
+    var mora = calcularMora(q, tasa);
     totalMoraCliente += mora;
     if (q.pagoParcial) return s + Math.max(0, q.cuota - (q.montoPagado || 0)) + mora;
     return s + q.cuota + mora;
@@ -503,7 +514,7 @@ function renderDetail() {
   var filasHTML = client.cuotas.map(function(q, i) {
     var valorGuardado = state.montosIngresados[i] ? state.montosIngresados[i].toLocaleString('es-CO') : '';
     var vencida = !q.pagada && isVencida(q.fechaPago);
-    var mora    = calcularMora(q);
+    var mora    = calcularMora(q, tasa);
     var rowStyle = q.pagada ? 'opacity:0.6;' : (vencida ? 'background:#fff5f5;' : '');
     var estado, accion;
 
@@ -555,8 +566,10 @@ function renderDetail() {
     '</div>' +
     '<div class="stats-grid mb-24">' +
       '<div class="stat-card"><div class="stat-label">Capital</div><div class="stat-value">' + fmt(client.monto) + '</div></div>' +
+      '<div class="stat-card gold"><div class="stat-label">Interés del capital</div><div class="stat-value" style="font-size:22px;">' + fmt(client.totalIntereses) + '<br><span style="font-size:12px;color:var(--text2);font-family:var(--font-body);">Tasa: ' + Math.round(tasa * 100) + '% mensual</span></div></div>' +
+      '<div class="stat-card green"><div class="stat-label">Interés cobrado</div><div class="stat-value" style="font-size:22px;color:var(--success);">' + fmt(intCobrado) + '</div></div>' +
+      '<div class="stat-card blue"><div class="stat-label">Interés pendiente</div><div class="stat-value" style="font-size:22px;">' + fmt(intPendiente) + '</div></div>' +
       '<div class="stat-card"><div class="stat-label">Total a Pagar</div><div class="stat-value">' + fmt(client.totalPagar) + '</div></div>' +
-      '<div class="stat-card"><div class="stat-label">Valor Cuota</div><div class="stat-value">' + fmt(client.cuotaFija) + '</div></div>' +
       '<div class="stat-card"><div class="stat-label">Restando</div><div class="stat-value" style="color:var(--danger)">' + fmt(montoRestando) + '</div></div>' +
       (totalMoraCliente > 0 ? '<div class="stat-card" style="border-color:var(--danger);background:#fff5f5;"><div class="stat-label" style="color:var(--danger);">⚠️ Mora acumulada</div><div class="stat-value" style="color:var(--danger);">' + fmt(totalMoraCliente) + '</div></div>' : '') +
     '</div>' +

@@ -271,6 +271,15 @@
           </select>
         </div>
       </div>
+      <div class="form-group">
+        <label class="form-label">Tasa de interés mensual</label>
+        <select id="f-tasa" class="form-input form-select" onchange="recalcPreview()">
+          <option value="0.05">5% mensual</option>
+          <option value="0.10">10% mensual</option>
+          <option value="0.15">15% mensual</option>
+          <option value="0.20" selected>20% mensual</option>
+        </select>
+      </div>
       
       <div id="calc-preview" class="hidden" style="background:var(--success-lt); border:1px solid var(--success); border-radius:12px; padding:16px;">
           <div class="flex-col gap-8">
