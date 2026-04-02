@@ -29,7 +29,8 @@ var state = {
   clients: [],
   currentClientId: null,
   editMode: false,
-  editId: null
+  editId: null,
+  montosIngresados: {}
 };
 
 /* ============================================================
@@ -50,19 +51,7 @@ clientsRef.on('value', function(snapshot) {
 function refreshCurrentView() {
   if (!document.getElementById('dashboard-page').classList.contains('hidden')) renderDashboard();
   if (!document.getElementById('clients-page').classList.contains('hidden'))   renderClients();
-  if (!document.getElementById('detail-page').classList.contains('hidden')) {
-    // Guardar valores escritos en los inputs antes de re-renderizar
-    var savedInputs = {};
-    document.querySelectorAll('[id^="inp-monto-"]').forEach(function(inp) {
-      if (inp.value.trim() !== '') savedInputs[inp.id] = inp.value;
-    });
-    renderDetail();
-    // Restaurar los valores después de re-renderizar
-    Object.keys(savedInputs).forEach(function(id) {
-      var inp = document.getElementById(id);
-      if (inp) inp.value = savedInputs[id];
-    });
-  }
+  if (!document.getElementById('detail-page').classList.contains('hidden'))    renderDetail();
   if (!document.getElementById('intereses-page').classList.contains('hidden')) renderIntereses();
 }
 
@@ -460,11 +449,11 @@ function renderDetail() {
   }, 0);
 
   var filasHTML = client.cuotas.map(function(q, i) {
-    var inputId  = 'inp-monto-' + i;
+    var valorGuardado = state.montosIngresados[i] ? state.montosIngresados[i].toLocaleString('es-CO') : '';
     var btnPagar = q.pagada
       ? '<span style="font-size:12px;color:var(--text2);margin-right:8px;">Pagado: ' + fmt(q.montoPagado || q.cuota) + '</span><button class="btn btn-outline btn-sm" onclick="toggleCuota(\'' + client.id + '\',' + i + ')">↩ Desmarcar</button>'
-      : '<input id="' + inputId + '" type="text" placeholder="' + Math.round(q.cuota).toLocaleString('es-CO') + '" oninput="formatMontoInput(this)" style="width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-right:8px;background:var(--surface);color:var(--text);">' +
-        '<button class="btn btn-primary btn-sm" onclick="toggleCuota(\'' + client.id + '\',' + i + ',\'' + inputId + '\')">✓ Pagar</button>';
+      : '<input type="text" value="' + valorGuardado + '" placeholder="' + Math.round(q.cuota).toLocaleString('es-CO') + '" oninput="guardarMonto(this,' + i + ')" style="width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-right:8px;background:var(--surface);color:var(--text);">' +
+        '<button class="btn btn-primary btn-sm" onclick="toggleCuota(\'' + client.id + '\',' + i + ')">✓ Pagar</button>';
     return '<tr>' +
       '<td style="padding:10px;">' + q.numero + '</td>' +
       '<td style="padding:10px;">' + fmtDate(q.fechaPago) + '</td>' +
@@ -498,14 +487,15 @@ function renderDetail() {
     '</div>';
 }
 
-function toggleCuota(clientId, index, inputId) {
-  var montoPagado = null;
-  if (inputId) {
-    var inp = document.getElementById(inputId);
-    if (inp && inp.value.trim() !== '') {
-      montoPagado = parseFloat(inp.value.replace(/[^0-9]/g, '')) || null;
-    }
-  }
+function guardarMonto(input, index) {
+  formatMontoInput(input);
+  var digits = input.value.replace(/[^0-9]/g, '');
+  state.montosIngresados[index] = digits ? parseFloat(digits) : null;
+}
+
+function toggleCuota(clientId, index) {
+  var montoPagado = state.montosIngresados[index] || null;
+  delete state.montosIngresados[index];
   toggleCuotaInCloud(clientId, index, montoPagado).then(function() { showToast('Estado actualizado'); });
 }
 
@@ -568,6 +558,7 @@ window.recalcPreview    = recalcPreview;
 window.formatMontoInput = formatMontoInput;
 window.viewClient       = viewClient;
 window.toggleCuota      = toggleCuota;
+window.guardarMonto     = guardarMonto;
 window.deleteClient     = deleteClient;
 window.renderClients    = renderClients;
 window.openModal        = openModal;
