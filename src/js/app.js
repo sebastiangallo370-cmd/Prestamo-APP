@@ -53,6 +53,8 @@ function refreshCurrentView() {
   if (!document.getElementById('clients-page').classList.contains('hidden'))   renderClients();
   if (!document.getElementById('detail-page').classList.contains('hidden'))    renderDetail();
   if (!document.getElementById('intereses-page').classList.contains('hidden')) renderIntereses();
+  if (!document.getElementById('mensual-page').classList.contains('hidden'))   renderMensual();
+  if (!document.getElementById('anual-page').classList.contains('hidden'))     renderAnual();
 }
 
 /* ============================================================
@@ -197,7 +199,7 @@ function showApp(username) {
    NAVEGACIÓN DE PÁGINAS
    ============================================================ */
 function showPage(page) {
-  ['dashboard-page','clients-page','detail-page','intereses-page'].forEach(function(p) {
+  ['dashboard-page','clients-page','detail-page','intereses-page','mensual-page','anual-page'].forEach(function(p) {
     var el = document.getElementById(p);
     if (el) el.classList.add('hidden');
   });
@@ -225,6 +227,20 @@ function showPage(page) {
     var bIntTab = document.getElementById('bnav-intereses');
     if (bIntTab) bIntTab.classList.add('active');
     renderIntereses();
+  } else if (page === 'mensual') {
+    document.getElementById('mensual-page').classList.remove('hidden');
+    document.getElementById('nav-mensual').classList.add('active');
+    var bMensualTab = document.getElementById('bnav-mensual');
+    if (bMensualTab) bMensualTab.classList.add('active');
+    initMensualFilters();
+    renderMensual();
+  } else if (page === 'anual') {
+    document.getElementById('anual-page').classList.remove('hidden');
+    document.getElementById('nav-anual').classList.add('active');
+    var bAnualTab = document.getElementById('bnav-anual');
+    if (bAnualTab) bAnualTab.classList.add('active');
+    initAnualFilters();
+    renderAnual();
   }
   closeSidebar();
 }
@@ -645,6 +661,227 @@ function renderIntereses() {
 }
 
 /* ============================================================
+   GANANCIAS MENSUAL / ANUAL
+   ============================================================ */
+function getPaidCuotas() {
+  var result = [];
+  state.clients.forEach(function(c) {
+    (c.cuotas || []).forEach(function(q) {
+      if (q.pagada && q.fechaPagada) {
+        result.push({
+          clienteNombre: c.nombre,
+          clienteId: c.id,
+          capital: q.capital || 0,
+          interes: q.interes || 0,
+          cuota: q.cuota || 0,
+          montoPagado: q.montoPagado || q.cuota || 0,
+          fechaPagada: q.fechaPagada,
+          numeroCuota: q.numero
+        });
+      }
+    });
+  });
+  return result;
+}
+
+function getAvailableYears() {
+  var years = {};
+  var currentYear = new Date().getFullYear();
+  years[currentYear] = true;
+  state.clients.forEach(function(c) {
+    (c.cuotas || []).forEach(function(q) {
+      if (q.fechaPagada) years[parseInt(q.fechaPagada.split('-')[0])] = true;
+      if (q.fechaPago)   years[parseInt(q.fechaPago.split('-')[0])]   = true;
+    });
+  });
+  return Object.keys(years).map(Number).sort(function(a, b) { return b - a; });
+}
+
+function initMensualFilters() {
+  var hoy = new Date();
+  var mesSelect  = document.getElementById('filter-mes');
+  var anioSelect = document.getElementById('filter-anio-mensual');
+  var MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  if (mesSelect.options.length === 0) {
+    MESES.forEach(function(m, i) {
+      var opt = document.createElement('option');
+      opt.value = i + 1;
+      opt.textContent = m;
+      if (i === hoy.getMonth()) opt.selected = true;
+      mesSelect.appendChild(opt);
+    });
+  }
+
+  var years = getAvailableYears();
+  anioSelect.innerHTML = '';
+  years.forEach(function(y) {
+    var opt = document.createElement('option');
+    opt.value = y;
+    opt.textContent = y;
+    if (y === hoy.getFullYear()) opt.selected = true;
+    anioSelect.appendChild(opt);
+  });
+}
+
+function initAnualFilters() {
+  var hoy = new Date();
+  var anioSelect = document.getElementById('filter-anio-anual');
+  var years = getAvailableYears();
+  anioSelect.innerHTML = '';
+  years.forEach(function(y) {
+    var opt = document.createElement('option');
+    opt.value = y;
+    opt.textContent = y;
+    if (y === hoy.getFullYear()) opt.selected = true;
+    anioSelect.appendChild(opt);
+  });
+}
+
+function renderMensual() {
+  var mesEl  = document.getElementById('filter-mes');
+  var anioEl = document.getElementById('filter-anio-mensual');
+  if (!mesEl || !anioEl) return;
+  var mes  = parseInt(mesEl.value);
+  var anio = parseInt(anioEl.value);
+  if (!mes || !anio) return;
+
+  var MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  var cuotas = getPaidCuotas().filter(function(q) {
+    var parts = q.fechaPagada.split('-');
+    return parseInt(parts[0]) === anio && parseInt(parts[1]) === mes;
+  });
+
+  var totalInteres = cuotas.reduce(function(s, q) { return s + q.interes; }, 0);
+  var totalCapital = cuotas.reduce(function(s, q) { return s + q.capital; }, 0);
+
+  var summaryEl = document.getElementById('mensual-summary');
+  if (summaryEl) {
+    summaryEl.innerHTML =
+      '<div class="stat-card green"><div class="stat-label">Interés ganado</div><div class="stat-value">' + fmt(totalInteres) + '</div></div>' +
+      '<div class="stat-card blue"><div class="stat-label">Capital recuperado</div><div class="stat-value">' + fmt(totalCapital) + '</div></div>' +
+      '<div class="stat-card gold"><div class="stat-label">Total cobrado</div><div class="stat-value">' + fmt(totalInteres + totalCapital) + '</div></div>' +
+      '<div class="stat-card purple"><div class="stat-label">Cuotas cobradas</div><div class="stat-value">' + cuotas.length + '</div></div>';
+  }
+
+  var listEl = document.getElementById('mensual-list');
+  if (!listEl) return;
+
+  if (cuotas.length === 0) {
+    listEl.innerHTML = '<div class="empty-state">No hay cobros en ' + MESES[mes - 1] + ' ' + anio + '</div>';
+    return;
+  }
+
+  listEl.innerHTML =
+    '<div class="card" style="padding:0; overflow:hidden;">' +
+    '<table class="w-full" style="border-collapse:collapse; font-size:13px;">' +
+    '<thead style="background:var(--surface2); border-bottom:1px solid var(--border);">' +
+    '<tr>' +
+    '<th style="padding:12px; text-align:left;">Cliente</th>' +
+    '<th style="padding:12px; text-align:left;">Cuota #</th>' +
+    '<th style="padding:12px; text-align:left;">Fecha pago</th>' +
+    '<th style="padding:12px; text-align:right;">Capital</th>' +
+    '<th style="padding:12px; text-align:right;">Interés ganado</th>' +
+    '<th style="padding:12px; text-align:right;">Total cuota</th>' +
+    '</tr>' +
+    '</thead>' +
+    '<tbody>' +
+    cuotas.map(function(q) {
+      return '<tr>' +
+        '<td style="padding:10px;"><span class="font-500">' + q.clienteNombre + '</span></td>' +
+        '<td style="padding:10px; color:var(--text2);">Cuota ' + q.numeroCuota + '</td>' +
+        '<td style="padding:10px;">' + fmtDate(q.fechaPagada) + '</td>' +
+        '<td style="padding:10px; text-align:right;">' + fmt(q.capital) + '</td>' +
+        '<td style="padding:10px; text-align:right; color:var(--success); font-weight:600;">' + fmt(q.interes) + '</td>' +
+        '<td style="padding:10px; text-align:right; font-weight:600;">' + fmt(q.cuota) + '</td>' +
+        '</tr>';
+    }).join('') +
+    '</tbody>' +
+    '</table>' +
+    '</div>';
+}
+
+function renderAnual() {
+  var anioEl = document.getElementById('filter-anio-anual');
+  if (!anioEl) return;
+  var anio = parseInt(anioEl.value);
+  if (!anio) return;
+
+  var MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  var cuotas = getPaidCuotas().filter(function(q) {
+    return parseInt(q.fechaPagada.split('-')[0]) === anio;
+  });
+
+  var totalInteres = cuotas.reduce(function(s, q) { return s + q.interes; }, 0);
+  var totalCapital = cuotas.reduce(function(s, q) { return s + q.capital; }, 0);
+
+  var summaryEl = document.getElementById('anual-summary');
+  if (summaryEl) {
+    summaryEl.innerHTML =
+      '<div class="stat-card green"><div class="stat-label">Interés ganado</div><div class="stat-value">' + fmt(totalInteres) + '</div></div>' +
+      '<div class="stat-card blue"><div class="stat-label">Capital recuperado</div><div class="stat-value">' + fmt(totalCapital) + '</div></div>' +
+      '<div class="stat-card gold"><div class="stat-label">Total cobrado</div><div class="stat-value">' + fmt(totalInteres + totalCapital) + '</div></div>' +
+      '<div class="stat-card purple"><div class="stat-label">Cuotas cobradas</div><div class="stat-value">' + cuotas.length + '</div></div>';
+  }
+
+  var listEl = document.getElementById('anual-list');
+  if (!listEl) return;
+
+  if (cuotas.length === 0) {
+    listEl.innerHTML = '<div class="empty-state">No hay cobros en ' + anio + '</div>';
+    return;
+  }
+
+  // Agrupar por mes
+  var porMes = {};
+  for (var m = 1; m <= 12; m++) { porMes[m] = { cuotas: 0, interes: 0, capital: 0 }; }
+  cuotas.forEach(function(q) {
+    var mes = parseInt(q.fechaPagada.split('-')[1]);
+    porMes[mes].cuotas++;
+    porMes[mes].interes  += q.interes;
+    porMes[mes].capital  += q.capital;
+  });
+
+  var rows = '';
+  for (var m2 = 1; m2 <= 12; m2++) {
+    var d = porMes[m2];
+    if (d.cuotas === 0) continue;
+    rows += '<tr>' +
+      '<td style="padding:10px; font-weight:600;">' + MESES[m2 - 1] + '</td>' +
+      '<td style="padding:10px; text-align:center;">' + d.cuotas + '</td>' +
+      '<td style="padding:10px; text-align:right;">' + fmt(d.capital) + '</td>' +
+      '<td style="padding:10px; text-align:right; color:var(--success); font-weight:600;">' + fmt(d.interes) + '</td>' +
+      '<td style="padding:10px; text-align:right; font-weight:600;">' + fmt(d.capital + d.interes) + '</td>' +
+      '</tr>';
+  }
+  rows += '<tr style="background:var(--surface2); font-weight:700; border-top:2px solid var(--border);">' +
+    '<td style="padding:10px;">TOTAL ' + anio + '</td>' +
+    '<td style="padding:10px; text-align:center;">' + cuotas.length + '</td>' +
+    '<td style="padding:10px; text-align:right;">' + fmt(totalCapital) + '</td>' +
+    '<td style="padding:10px; text-align:right; color:var(--success);">' + fmt(totalInteres) + '</td>' +
+    '<td style="padding:10px; text-align:right;">' + fmt(totalInteres + totalCapital) + '</td>' +
+    '</tr>';
+
+  listEl.innerHTML =
+    '<div class="card" style="padding:0; overflow:hidden;">' +
+    '<table class="w-full" style="border-collapse:collapse; font-size:13px;">' +
+    '<thead style="background:var(--surface2); border-bottom:1px solid var(--border);">' +
+    '<tr>' +
+    '<th style="padding:12px; text-align:left;">Mes</th>' +
+    '<th style="padding:12px; text-align:center;">Cuotas cobradas</th>' +
+    '<th style="padding:12px; text-align:right;">Capital recuperado</th>' +
+    '<th style="padding:12px; text-align:right;">Interés ganado</th>' +
+    '<th style="padding:12px; text-align:right;">Total cobrado</th>' +
+    '</tr>' +
+    '</thead>' +
+    '<tbody>' + rows + '</tbody>' +
+    '</table>' +
+    '</div>';
+}
+
+/* ============================================================
    MODALES Y TOASTS
    ============================================================ */
 function openModal(id) {
@@ -690,6 +927,8 @@ window.deleteClient     = deleteClient;
 window.renderClients    = renderClients;
 window.openModal        = openModal;
 window.closeModal       = closeModal;
+window.renderMensual    = renderMensual;
+window.renderAnual      = renderAnual;
 
 /* ============================================================
    INICIALIZACIÓN
