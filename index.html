@@ -212,7 +212,7 @@
         <button class="btn btn-primary btn-lg" onclick="openAddModal()">Nuevo Préstamo</button>
       </div>
       
-      <div class="clients-toolbar">
+      <div class="clients-toolbar" style="flex-wrap:wrap; gap:12px;">
         <div class="search-input-wrap">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input type="text" class="form-input search-input" id="search-input" placeholder="Buscar por nombre o teléfono..." oninput="renderClients()">
@@ -221,7 +221,17 @@
           <option value="">Todos los estados</option>
           <option value="activo">Activos</option>
           <option value="completo">Completados</option>
+          <option value="vencido">Con cuotas vencidas</option>
         </select>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <label class="form-label" style="margin:0; font-size:12px; white-space:nowrap;">Desde:</label>
+          <input type="date" id="filter-fecha-desde" class="form-input" style="width:150px; padding:8px 10px;" onchange="renderClients()">
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <label class="form-label" style="margin:0; font-size:12px; white-space:nowrap;">Hasta:</label>
+          <input type="date" id="filter-fecha-hasta" class="form-input" style="width:150px; padding:8px 10px;" onchange="renderClients()">
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="clearDateFilters()" style="white-space:nowrap;">Limpiar fechas</button>
       </div>
 
       <div id="clients-list" class="flex-col gap-12"></div>
@@ -285,10 +295,6 @@
           <label class="form-label">Nombre completo *</label>
           <input type="text" id="f-nombre" class="form-input" placeholder="Ej: María García">
         </div>
-        <div class="form-group">
-          <label class="form-label">Teléfono</label>
-          <input type="tel" id="f-tel" class="form-input" placeholder="Ej: 300 123 4567">
-        </div>
       </div>
       <div class="form-grid-2">
         <div class="form-group">
@@ -317,6 +323,7 @@
       <div class="form-group">
         <label class="form-label">Tasa de interés mensual</label>
         <select id="f-tasa" class="form-input form-select" onchange="recalcPreview()">
+          <option value="0.00">0% mensual</option>
           <option value="0.05">5% mensual</option>
           <option value="0.10">10% mensual</option>
           <option value="0.15">15% mensual</option>
@@ -324,6 +331,8 @@
         </select>
       </div>
       
+      <div id="edit-note" class="hidden" style="background:#fff5f5; border:1px solid var(--danger); border-radius:12px; padding:12px; font-size:13px; color:var(--danger);"></div>
+
       <div id="calc-preview" class="hidden" style="background:var(--success-lt); border:1px solid var(--success); border-radius:12px; padding:16px;">
           <div class="flex-col gap-8">
               <div class="flex justify-between"><span class="text-xs">Total a pagar:</span><span id="prev-total" class="font-600"></span></div>

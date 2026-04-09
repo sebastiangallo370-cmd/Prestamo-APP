@@ -357,19 +357,78 @@ function openAddModal() {
   state.editMode = false;
   state.editId   = null;
   document.getElementById('modal-client-title').textContent = 'Nuevo cliente';
-  ['f-nombre','f-tel','f-monto','f-cuotas'].forEach(function(id) {
+  ['f-nombre','f-monto','f-cuotas'].forEach(function(id) {
     document.getElementById(id).value = '';
   });
   document.getElementById('f-fecha').valueAsDate = new Date();
   document.getElementById('f-frecuencia').value = '30';
   document.getElementById('f-tasa').value       = '0.20';
   document.getElementById('calc-preview').classList.add('hidden');
+  // Habilitar campos financieros en modo creación
+  document.getElementById('f-monto').disabled     = false;
+  document.getElementById('f-cuotas').disabled     = false;
+  document.getElementById('f-fecha').disabled      = false;
+  document.getElementById('f-frecuencia').disabled = false;
+  document.getElementById('f-tasa').disabled       = false;
+  var editNote = document.getElementById('edit-note');
+  if (editNote) editNote.classList.add('hidden');
+  openModal('modal-client');
+}
+
+function openEditModal(id) {
+  var client = state.clients.find(function(c) { return c.id === id; });
+  if (!client) return;
+
+  state.editMode = true;
+  state.editId   = id;
+  document.getElementById('modal-client-title').textContent = 'Editar cliente';
+  document.getElementById('f-nombre').value     = client.nombre || '';
+  document.getElementById('f-monto').value      = client.monto ? client.monto.toLocaleString('es-CO') : '';
+  document.getElementById('f-cuotas').value     = client.numCuotas || '';
+  document.getElementById('f-fecha').value      = client.fechaPrestamo || '';
+  document.getElementById('f-frecuencia').value = client.frecuencia || '30';
+  document.getElementById('f-tasa').value       = client.tasaMensual ? String(client.tasaMensual) : '0.20';
+
+  // Si ya tiene cuotas pagadas, deshabilitamos campos financieros para no perder historial
+  var tienePagos = client.cuotas.some(function(q) { return q.pagada || q.pagoParcial; });
+  document.getElementById('f-monto').disabled     = tienePagos;
+  document.getElementById('f-cuotas').disabled     = tienePagos;
+  document.getElementById('f-fecha').disabled      = tienePagos;
+  document.getElementById('f-frecuencia').disabled = tienePagos;
+  document.getElementById('f-tasa').disabled       = tienePagos;
+
+  var editNote = document.getElementById('edit-note');
+  if (editNote) {
+    if (tienePagos) {
+      editNote.textContent = 'Los campos financieros están bloqueados porque ya hay cuotas pagadas. Solo puedes editar nombre y teléfono.';
+      editNote.classList.remove('hidden');
+    } else {
+      editNote.classList.add('hidden');
+    }
+  }
+
+  recalcPreview();
   openModal('modal-client');
 }
 
 function saveClient() {
   var nombre        = document.getElementById('f-nombre').value.trim();
-  var telefono      = document.getElementById('f-tel').value.trim();
+
+  if (!nombre) {
+    showToast('El nombre es obligatorio.', 'error');
+    return;
+  }
+
+  // En modo edición con campos financieros bloqueados, solo actualizar nombre
+  if (state.editMode && state.editId && document.getElementById('f-monto').disabled) {
+    var updateData = { nombre: nombre };
+    db.ref('clients/' + state.editId).update(updateData).then(function() {
+      showToast('Cliente actualizado');
+      closeModal('modal-client');
+    }).catch(function() { showToast('Error al guardar', 'error'); });
+    return;
+  }
+
   var montoRaw      = document.getElementById('f-monto').value.replace(/[^0-9]/g, '');
   var monto         = parseFloat(montoRaw);
   var numCuotas     = parseInt(document.getElementById('f-cuotas').value);
@@ -377,14 +436,14 @@ function saveClient() {
   var frecuencia    = document.getElementById('f-frecuencia').value;
   var tasa          = parseFloat(document.getElementById('f-tasa').value) || CONFIG.INTERES_MENSUAL;
 
-  if (!nombre || !monto || !numCuotas || !fechaPrestamo) {
+  if (!monto || !numCuotas || !fechaPrestamo) {
     showToast('Por favor completa todos los campos obligatorios.', 'error');
     return;
   }
 
   var calc = calcularPrestamo(monto, numCuotas, fechaPrestamo, frecuencia, tasa);
   var clientData = {
-    nombre: nombre, telefono: telefono, monto: monto,
+    nombre: nombre, monto: monto,
     numCuotas: numCuotas, fechaPrestamo: fechaPrestamo, frecuencia: frecuencia,
     tasaMensual: tasa,
     cuotaFija: calc.cuotaFija, totalPagar: calc.totalPagar,
@@ -458,17 +517,36 @@ function renderDashboard() {
   }
 }
 
+function clearDateFilters() {
+  document.getElementById('filter-fecha-desde').value = '';
+  document.getElementById('filter-fecha-hasta').value = '';
+  renderClients();
+}
+
 function renderClients() {
   var search       = (document.getElementById('search-input').value || '').toLowerCase();
   var filterStatus = document.getElementById('filter-status').value;
+  var fechaDesde   = document.getElementById('filter-fecha-desde').value;
+  var fechaHasta   = document.getElementById('filter-fecha-hasta').value;
 
   var clients = state.clients.filter(function(c) {
     var matchSearch  = c.nombre.toLowerCase().includes(search) || (c.telefono || '').toLowerCase().includes(search);
     var pendientes   = c.cuotas.filter(function(q) { return !q.pagada; }).length;
     var matchStatus  = !filterStatus ||
       (filterStatus === 'activo'   && pendientes > 0) ||
-      (filterStatus === 'completo' && pendientes === 0);
-    return matchSearch && matchStatus;
+      (filterStatus === 'completo' && pendientes === 0) ||
+      (filterStatus === 'vencido'  && clienteConVencidas(c));
+
+    // Filtro por fecha de antigüedad (fecha del préstamo)
+    var matchFecha = true;
+    if (fechaDesde && c.fechaPrestamo) {
+      matchFecha = matchFecha && c.fechaPrestamo >= fechaDesde;
+    }
+    if (fechaHasta && c.fechaPrestamo) {
+      matchFecha = matchFecha && c.fechaPrestamo <= fechaHasta;
+    }
+
+    return matchSearch && matchStatus && matchFecha;
   });
 
   var listEl = document.getElementById('clients-list');
@@ -477,21 +555,32 @@ function renderClients() {
   }
 }
 
+function clienteConVencidas(c) {
+  return c.cuotas.some(function(q) { return !q.pagada && isVencida(q.fechaPago); });
+}
+
+function contarVencidas(c) {
+  return c.cuotas.filter(function(q) { return !q.pagada && isVencida(q.fechaPago); }).length;
+}
+
 function clientRowHTML(c) {
   var cuotasPagadas = c.cuotas.filter(function(q) { return q.pagada; }).length;
   var progreso = Math.round((cuotasPagadas / c.cuotas.length) * 100);
-  return '<div class="client-row" onclick="viewClient(\'' + c.id + '\')">' +
-    '<div class="client-avatar">' + initials(c.nombre) + '</div>' +
+  var tieneVencidas = clienteConVencidas(c);
+  var numVencidas = tieneVencidas ? contarVencidas(c) : 0;
+  var rowStyle = tieneVencidas ? 'border-left:4px solid var(--danger); background:rgba(239,68,68,0.06);' : '';
+  return '<div class="client-row" onclick="viewClient(\'' + c.id + '\')" style="' + rowStyle + '">' +
+    '<div class="client-avatar"' + (tieneVencidas ? ' style="background:var(--danger);color:#fff;"' : '') + '>' + initials(c.nombre) + '</div>' +
     '<div class="client-info">' +
-      '<div class="client-name">' + c.nombre + '</div>' +
-      '<div class="client-meta">' + (c.telefono || 'Sin teléfono') + ' · Desde ' + fmtDate(c.fechaPrestamo) + '</div>' +
+      '<div class="client-name">' + c.nombre + (tieneVencidas ? ' <span style="font-size:11px;color:var(--danger);font-weight:600;margin-left:8px;">🔴 ' + numVencidas + ' cuota' + (numVencidas > 1 ? 's' : '') + ' vencida' + (numVencidas > 1 ? 's' : '') + '</span>' : '') + '</div>' +
+      '<div class="client-meta">Desde ' + fmtDate(c.fechaPrestamo) + '</div>' +
       '<div class="flex items-center gap-8 mt-8">' +
         '<div class="progress-bar" style="width:100px"><div class="progress-fill" style="width:' + progreso + '%"></div></div>' +
         '<span class="text-xs">' + progreso + '%</span>' +
       '</div>' +
     '</div>' +
     '<div class="client-amount text-right">' +
-      '<div class="font-600">' + fmt(c.monto) + '</div>' +
+      '<div class="font-600"' + (tieneVencidas ? ' style="color:var(--danger);"' : '') + '>' + fmt(c.monto) + '</div>' +
       '<div class="text-xs text-muted">Capital prestado</div>' +
     '</div>' +
   '</div>';
@@ -576,9 +665,12 @@ function renderDetail() {
     '<div class="flex justify-between items-center mb-24">' +
       '<div class="flex items-center gap-16">' +
         '<div class="client-avatar" style="width:64px;height:64px;font-size:24px">' + initials(client.nombre) + '</div>' +
-        '<div><h3 class="font-disp" style="font-size:24px">' + client.nombre + '</h3><p class="text-muted">' + (client.telefono || 'Sin teléfono') + '</p></div>' +
+        '<div><h3 class="font-disp" style="font-size:24px">' + client.nombre + '</h3><p class="text-muted">Cliente activo</p></div>' +
       '</div>' +
-      '<button class="btn btn-danger btn-sm" onclick="deleteClient(\'' + client.id + '\')">Eliminar Cliente</button>' +
+      '<div class="flex gap-8">' +
+        '<button class="btn btn-outline btn-sm" onclick="openEditModal(\'' + client.id + '\')" style="border-color:var(--accent);color:var(--accent);">✏️ Editar</button>' +
+        '<button class="btn btn-danger btn-sm" onclick="deleteClient(\'' + client.id + '\')">Eliminar Cliente</button>' +
+      '</div>' +
     '</div>' +
     '<div class="stats-grid mb-24">' +
       '<div class="stat-card"><div class="stat-label">Capital</div><div class="stat-value">' + fmt(client.monto) + '</div></div>' +
@@ -916,6 +1008,7 @@ window.toggleSidebar    = toggleSidebar;
 window.closeSidebar     = closeSidebar;
 window.toggleUserMenu   = toggleUserMenu;
 window.openAddModal     = openAddModal;
+window.openEditModal    = openEditModal;
 window.saveClient       = saveClient;
 window.recalcPreview    = recalcPreview;
 window.formatMontoInput = formatMontoInput;
@@ -925,6 +1018,7 @@ window.guardarMonto     = guardarMonto;
 window.agregarPago      = agregarPago;
 window.deleteClient     = deleteClient;
 window.renderClients    = renderClients;
+window.clearDateFilters = clearDateFilters;
 window.openModal        = openModal;
 window.closeModal       = closeModal;
 window.renderMensual    = renderMensual;

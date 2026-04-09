@@ -545,30 +545,56 @@ body {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 16px 20px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
   cursor: pointer;
   transition: all var(--transition);
 }
 .client-row:hover { border-color: var(--accent2); box-shadow: var(--shadow); transform: translateY(-1px); }
 .client-avatar {
-  width: 44px; height: 44px;
+  width: 24px; height: 24px;
   border-radius: 50%;
   background: var(--gold-lt);
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: var(--font-disp);
-  font-size: 18px;
+  font-size: 10px;
   color: var(--gold);
   flex-shrink: 0;
-  border: 2px solid var(--gold);
+  border: 1px solid var(--gold);
 }
 .client-info { flex: 1; min-width: 0; }
-.client-name { font-weight: 500; font-size: 15px; color: var(--text); }
-.client-meta { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.client-name { font-weight: 500; font-size: 14px; color: var(--text); }
+.client-meta { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+/* ============================================================
+   LISTA DE CLIENTES SCROLLEABLE
+   ============================================================ */
+#clients-list {
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+#clients-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+#clients-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#clients-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+#clients-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text2);
+}
 
 /* ============================================================
    MODAL
